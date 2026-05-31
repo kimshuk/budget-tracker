@@ -1,4 +1,5 @@
 import os
+import tempfile
 from datetime import date
 import pytest
 from parsers.kb_card import parse as kb_parse
@@ -56,3 +57,29 @@ def test_kakao_pay_parse_first_transaction():
     assert t.merchant == "GS25 강남역점"
     assert t.source == "kakao_pay"
     assert t.category == ""
+
+
+def test_kb_card_parse_xlsx():
+    from openpyxl import Workbook
+    wb = Workbook()
+    ws = wb.active
+    # Simulate real export: a few metadata rows, then header, then data
+    ws.append(["국민카드 이용내역", None, None, None, None])
+    ws.append(["조회기간: 2026.05.01 ~ 2026.05.31", None, None, None, None])
+    ws.append(["이용일", "이용가맹점명", "이용금액", "할부", "결제방법"])
+    ws.append(["2026.05.15", "스타벅스 강남점", 4500, "일시불", "신용카드"])
+    ws.append(["2026.05.20", "쿠팡", "32,000", "일시불", "신용카드"])
+
+    with tempfile.NamedTemporaryFile(suffix=".xlsx", delete=False) as f:
+        tmp_path = f.name
+    try:
+        wb.save(tmp_path)
+        txns = kb_parse(tmp_path)
+        assert len(txns) == 2
+        assert txns[0].date == date(2026, 5, 15)
+        assert txns[0].amount == 4500
+        assert txns[0].merchant == "스타벅스 강남점"
+        assert txns[0].source == "kb_card"
+        assert txns[1].amount == 32000
+    finally:
+        os.unlink(tmp_path)

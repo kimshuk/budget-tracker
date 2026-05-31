@@ -2,14 +2,6 @@ from unittest.mock import MagicMock, patch
 from sheets import SheetsClient
 
 
-def _make_client():
-    with patch("sheets.service_account.Credentials.from_service_account_file"), \
-         patch("sheets.build") as mock_build:
-        mock_build.return_value = MagicMock()
-        client = SheetsClient("SHEET_ID", "creds.json")
-        return client
-
-
 @patch("sheets.build")
 @patch("sheets.service_account.Credentials.from_service_account_file")
 def test_read_sheet_returns_values(mock_creds, mock_build):

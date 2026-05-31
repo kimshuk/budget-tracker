@@ -1,10 +1,13 @@
 import argparse
+from pathlib import Path
 from models import Transaction
 from sheets import SheetsClient
 from categorizer import categorize
 from dashboard import build_dashboard
 from parsers import kb_card, naver_pay, kakao_pay
 from config import SPREADSHEET_ID, CREDENTIALS_FILE
+
+EXPENSE_DIR = Path("expense")
 
 TRANSACTIONS_SHEET = "transactions"
 CATEGORIES_SHEET = "merchant_categories"
@@ -36,11 +39,25 @@ def detect_source(filepath: str) -> str:
     return "kb"
 
 
+def collect_files(args) -> list[Path]:
+    if args.files:
+        return [Path(f) for f in args.files]
+    if not EXPENSE_DIR.exists():
+        raise SystemExit(f"expense/ 폴더가 없습니다. 폴더를 만들고 CSV를 넣어주세요.")
+    files = sorted(EXPENSE_DIR.glob("*.csv"))
+    if not files:
+        raise SystemExit("expense/ 폴더에 CSV 파일이 없습니다.")
+    return files
+
+
 def main():
     parser = argparse.ArgumentParser(description="Import spending CSV to Google Sheets")
-    parser.add_argument("--files", nargs="+", required=True)
+    parser.add_argument("--files", nargs="+", help="CSV 파일 경로 (생략 시 expense/ 폴더 전체)")
     parser.add_argument("--source", choices=list(SOURCE_MAP.keys()))
     args = parser.parse_args()
+
+    filepaths = collect_files(args)
+    print(f"파일 {len(filepaths)}개 발견: {[f.name for f in filepaths]}")
 
     client = SheetsClient(SPREADSHEET_ID, CREDENTIALS_FILE)
     client.ensure_sheet_exists(TRANSACTIONS_SHEET)
@@ -58,9 +75,9 @@ def main():
     }
 
     all_transactions: list[Transaction] = []
-    for filepath in args.files:
-        source = args.source or detect_source(filepath)
-        all_transactions.extend(SOURCE_MAP[source].parse(filepath))
+    for filepath in filepaths:
+        source = args.source or detect_source(str(filepath))
+        all_transactions.extend(SOURCE_MAP[source].parse(str(filepath)))
 
     new_transactions = deduplicate(all_transactions, existing_keys)
 

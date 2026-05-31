@@ -3,4 +3,4 @@ credentials.json
 __pycache__/
 *.pyc
 .pytest_cache/
-expense/*.csv
+expense/**

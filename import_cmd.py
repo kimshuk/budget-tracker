@@ -4,7 +4,7 @@ from models import Transaction
 from sheets import SheetsClient
 from categorizer import categorize
 from dashboard import build_dashboard
-from parsers import kb_card, naver_pay, kakao_pay
+from parsers import kb_card, kb_bank, naver_pay, kakao_pay
 from config import SPREADSHEET_ID, CREDENTIALS_FILE
 
 EXPENSE_DIR = Path("expense")
@@ -15,6 +15,7 @@ HEADER = ["date", "amount", "merchant", "category", "source", "memo"]
 
 SOURCE_MAP = {
     "kb": kb_card,
+    "bank": kb_bank,
     "naver": naver_pay,
     "kakao": kakao_pay,
 }
@@ -36,6 +37,8 @@ def detect_source(filepath: str) -> str:
         return "naver"
     if "kakao" in name:
         return "kakao"
+    if "은행" in name or "bank" in name:
+        return "bank"
     return "kb"
 
 

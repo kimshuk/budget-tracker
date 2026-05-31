@@ -19,7 +19,7 @@ def parse(filepath: str, encoding: str = "utf-8-sig") -> list[Transaction]:
             dt = datetime.strptime(row[DATE_COL].strip(), "%Y-%m-%d %H:%M:%S")
             transactions.append(Transaction(
                 date=dt.date(),
-                amount=int(row[AMOUNT_COL].strip()),
+                amount=int(row[AMOUNT_COL].replace(",", "").strip()),
                 merchant=row[MERCHANT_COL].strip(),
                 category="",
                 source="naver_pay",

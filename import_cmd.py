@@ -44,7 +44,11 @@ def collect_files(args) -> list[Path]:
         return [Path(f) for f in args.files]
     if not EXPENSE_DIR.exists():
         raise SystemExit(f"expense/ 폴더가 없습니다. 폴더를 만들고 CSV를 넣어주세요.")
-    files = sorted(EXPENSE_DIR.glob("*.csv")) + sorted(EXPENSE_DIR.glob("*.xlsx"))
+    files = (
+        sorted(EXPENSE_DIR.rglob("*.csv"))
+        + sorted(EXPENSE_DIR.rglob("*.xlsx"))
+        + sorted(EXPENSE_DIR.rglob("*.xls"))
+    )
     if not files:
         raise SystemExit("expense/ 폴더에 CSV 파일이 없습니다.")
     return files

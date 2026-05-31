@@ -24,6 +24,22 @@ def test_kb_card_parse_first_transaction():
     assert t.source == "kb_card"
 
 
+def test_kb_card_parse_skips_zero_amount():
+    # 국내이용금액=0 행(해외 전용 거래)은 스킵
+    import tempfile
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".csv", delete=False, encoding="utf-8") as f:
+        f.write("이용일,이용하신곳,국내이용금액(원),할부,결제방법\n")
+        f.write("2026-05-01,GOOGLE*PLAY,0,일시불,신용카드\n")
+        f.write("2026-05-02,스타벅스,4500,일시불,신용카드\n")
+        tmp = f.name
+    try:
+        txns = kb_parse(tmp, encoding="utf-8")
+        assert len(txns) == 1
+        assert txns[0].merchant == "스타벅스"
+    finally:
+        os.unlink(tmp)
+
+
 def test_kb_card_parse_strips_commas_from_amount():
     txns = kb_parse(os.path.join(FIXTURES, "kb_card_sample.csv"), encoding="utf-8")
     assert txns[2].amount == 32000
@@ -66,9 +82,9 @@ def test_kb_card_parse_xlsx():
     # Simulate real export: a few metadata rows, then header, then data
     ws.append(["국민카드 이용내역", None, None, None, None])
     ws.append(["조회기간: 2026.05.01 ~ 2026.05.31", None, None, None, None])
-    ws.append(["이용일", "이용가맹점명", "이용금액", "할부", "결제방법"])
-    ws.append(["2026.05.15", "스타벅스 강남점", 4500, "일시불", "신용카드"])
-    ws.append(["2026.05.20", "쿠팡", "32,000", "일시불", "신용카드"])
+    ws.append(["이용일", "이용하신곳", "국내이용금액(원)", "할부", "결제방법"])
+    ws.append(["2026-05-15", "스타벅스 강남점", 4500, "일시불", "신용카드"])
+    ws.append(["2026-05-20", "쿠팡", "32,000", "일시불", "신용카드"])
 
     with tempfile.NamedTemporaryFile(suffix=".xlsx", delete=False) as f:
         tmp_path = f.name

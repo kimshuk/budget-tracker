@@ -20,6 +20,9 @@
 ```bash
 export SPREADSHEET_ID="your-spreadsheet-id"
 export GOOGLE_CREDENTIALS="credentials.json"  # default
+export OPENAI_API_KEY="your-openai-api-key"   # optional, dashboard AI insights
+export OPENAI_MODEL="gpt-5"                  # optional
+export OPENAI_WEB_SEARCH="true"              # optional, lets AI tips search the web
 ```
 
 셸에서 직접 설정할 수도 있습니다.
@@ -27,6 +30,9 @@ export GOOGLE_CREDENTIALS="credentials.json"  # default
 ```bash
 export SPREADSHEET_ID="your-spreadsheet-id"
 export GOOGLE_CREDENTIALS="credentials.json"  # default
+export OPENAI_API_KEY="your-openai-api-key"   # optional, dashboard AI insights
+export OPENAI_MODEL="gpt-5"                  # optional
+export OPENAI_WEB_SEARCH="true"              # optional, lets AI tips search the web
 ```
 
 ### 3. 의존성 설치
@@ -85,6 +91,11 @@ CLI 프롬프트 없이 Google Sheets에서 직접 관리합니다.
 매 실행마다 `dashboard` 시트가 자동 재생성됩니다.  
 연간 총 지출, 월별 총 지출, 월별 카테고리 비율과 금액을 보여줍니다.  
 상단에는 최근 2개월의 카테고리별 지출을 비교하는 막대 차트가 생성됩니다.  
+`OPENAI_API_KEY`가 설정되어 있으면 최근 2개월의 의미 있는 변화와 구체적인 대응 팁을
+`AI 월간 인사이트` 섹션에 생성합니다. API 키가 없거나 호출에 실패해도 계산된 변화 요약으로
+대시보드는 계속 생성됩니다.  
+`OPENAI_WEB_SEARCH=true`를 추가하면 LLM이 현재 가격, 멤버십, 대체 서비스처럼 최신 정보가
+필요한 팁에 한해 웹 검색을 사용할 수 있습니다. 웹 검색은 추가 비용과 실행 시간을 늘릴 수 있습니다.  
 각 카테고리 행을 펼치면 세부 거래 내역을 확인할 수 있습니다.  
 카테고리 그룹은 기본적으로 접힌 상태로 표시됩니다.
 

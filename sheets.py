@@ -4,6 +4,127 @@ from googleapiclient.discovery import build
 SCOPES = ["https://www.googleapis.com/auth/spreadsheets"]
 
 
+def _rgb(red: int, green: int, blue: int) -> dict:
+    return {"red": red / 255, "green": green / 255, "blue": blue / 255}
+
+
+def _repeat_cell(
+    sheet_id: int,
+    start_row: int,
+    end_row: int,
+    start_col: int,
+    end_col: int,
+    *,
+    background: dict | None = None,
+    bold: bool | None = None,
+    horizontal_alignment: str | None = None,
+) -> dict:
+    user_format = {}
+    fields = []
+    if background:
+        user_format["backgroundColor"] = background
+        fields.append("userEnteredFormat.backgroundColor")
+    if bold is not None:
+        user_format.setdefault("textFormat", {})["bold"] = bold
+        fields.append("userEnteredFormat.textFormat.bold")
+    if horizontal_alignment:
+        user_format["horizontalAlignment"] = horizontal_alignment
+        fields.append("userEnteredFormat.horizontalAlignment")
+
+    return {
+        "repeatCell": {
+            "range": {
+                "sheetId": sheet_id,
+                "startRowIndex": start_row,
+                "endRowIndex": end_row,
+                "startColumnIndex": start_col,
+                "endColumnIndex": end_col,
+            },
+            "cell": {"userEnteredFormat": user_format},
+            "fields": ",".join(fields),
+        }
+    }
+
+
+def _borders(
+    sheet_id: int,
+    start_row: int,
+    end_row: int,
+    start_col: int,
+    end_col: int,
+) -> dict:
+    border = {
+        "style": "SOLID",
+        "width": 1,
+        "color": _rgb(0, 0, 0),
+    }
+    return {
+        "updateBorders": {
+            "range": {
+                "sheetId": sheet_id,
+                "startRowIndex": start_row,
+                "endRowIndex": end_row,
+                "startColumnIndex": start_col,
+                "endColumnIndex": end_col,
+            },
+            "top": border,
+            "bottom": border,
+            "left": border,
+            "right": border,
+            "innerHorizontal": border,
+            "innerVertical": border,
+        }
+    }
+
+
+def _dashboard_style_requests(sheet_id: int, rows: list[list]) -> list[dict]:
+    blue = _rgb(164, 194, 244)
+    green = _rgb(182, 215, 168)
+    yellow = _rgb(255, 229, 153)
+    requests = [
+        _column_width(sheet_id, 0, 1, 140),
+        _column_width(sheet_id, 1, 2, 130),
+        _column_width(sheet_id, 2, 3, 170),
+        _column_width(sheet_id, 3, 4, 120),
+        _column_width(sheet_id, 4, 5, 40),
+        _column_width(sheet_id, 5, 9, 155),
+    ]
+
+    for index, row in enumerate(rows):
+        label = str(row[0]) if row else ""
+        if label == "최근 2개월 카테고리 비교":
+            requests.append(_repeat_cell(sheet_id, index, index + 1, 0, 3, background=blue, bold=True, horizontal_alignment="CENTER"))
+            requests.append(_borders(sheet_id, index, index + 1, 0, 3))
+        elif label == "카테고리":
+            requests.append(_repeat_cell(sheet_id, index, index + 1, 0, 3, background=green, bold=True, horizontal_alignment="CENTER"))
+            requests.append(_borders(sheet_id, index, index + 1, 0, 3))
+        elif label == "거래 상세":
+            requests.append(_repeat_cell(sheet_id, index, index + 1, 0, 3, background=green, bold=True, horizontal_alignment="CENTER"))
+            requests.append(_borders(sheet_id, index, index + 1, 0, 3))
+        elif label.endswith("년") or label.endswith("월"):
+            requests.append(_repeat_cell(sheet_id, index, index + 1, 0, 4, background=blue, bold=True))
+            requests.append(_borders(sheet_id, index, index + 1, 0, 4))
+            if len(row) > 2 and row[2] in {"연간 총 지출", "월 총 지출"}:
+                requests.append(_repeat_cell(sheet_id, index, index + 1, 3, 4, background=yellow, bold=True))
+
+    return requests
+
+
+def _column_width(sheet_id: int, start_col: int, end_col: int, width: int) -> dict:
+    return {
+        "updateDimensionProperties": {
+            "range": {
+                "sheetId": sheet_id,
+                "dimension": "COLUMNS",
+                "startIndex": start_col,
+                "endIndex": end_col,
+            },
+            "properties": {"pixelSize": width},
+            "fields": "pixelSize",
+        }
+    }
+
+
 class SheetsClient:
     def __init__(self, spreadsheet_id: str, credentials_file: str):
         creds = service_account.Credentials.from_service_account_file(
@@ -29,7 +150,12 @@ class SheetsClient:
             body={"values": rows},
         ).execute()
 
-    def clear_and_write(self, sheet_name: str, rows: list[list]) -> None:
+    def clear_and_write(
+        self,
+        sheet_name: str,
+        rows: list[list],
+        value_input_option: str = "USER_ENTERED",
+    ) -> None:
         self._service.spreadsheets().values().clear(
             spreadsheetId=self._spreadsheet_id,
             range=sheet_name,
@@ -39,7 +165,7 @@ class SheetsClient:
             self._service.spreadsheets().values().update(
                 spreadsheetId=self._spreadsheet_id,
                 range=f"{sheet_name}!A1",
-                valueInputOption="USER_ENTERED",
+                valueInputOption=value_input_option,
                 body={"values": rows},
             ).execute()
 
@@ -101,6 +227,23 @@ class SheetsClient:
                 body={"requests": requests},
             ).execute()
 
+    def clear_merges(self, sheet_id: int) -> None:
+        spreadsheet = (
+            self._service.spreadsheets()
+            .get(spreadsheetId=self._spreadsheet_id, fields="sheets(properties(sheetId),merges)")
+            .execute()
+        )
+        requests = []
+        for sheet in spreadsheet["sheets"]:
+            if sheet["properties"]["sheetId"] == sheet_id:
+                for merge in sheet.get("merges", []):
+                    requests.append({"unmergeCells": {"range": merge}})
+        if requests:
+            self._service.spreadsheets().batchUpdate(
+                spreadsheetId=self._spreadsheet_id,
+                body={"requests": requests},
+            ).execute()
+
     def apply_dropdown_validation(self, sheet_id: int, col_index: int, source_range: str) -> None:
         self._service.spreadsheets().batchUpdate(
             spreadsheetId=self._spreadsheet_id,
@@ -153,6 +296,8 @@ class SheetsClient:
         row_count: int,
         percent_ranges: list[tuple[int, int]] | None = None,
         bar_charts: list | None = None,
+        insight_range: tuple[int, int] | None = None,
+        dashboard_rows: list[list] | None = None,
     ) -> None:
         if row_count <= 0:
             return
@@ -220,6 +365,41 @@ class SheetsClient:
                     "fields": "userEnteredFormat.numberFormat",
                 }
             })
+
+        if insight_range:
+            start, end = insight_range
+            requests.append({
+                "repeatCell": {
+                    "range": {
+                        "sheetId": sheet_id,
+                        "startRowIndex": start,
+                        "endRowIndex": end,
+                        "startColumnIndex": 5,
+                        "endColumnIndex": 9,
+                    },
+                    "cell": {
+                        "userEnteredFormat": {
+                            "wrapStrategy": "WRAP",
+                        }
+                    },
+                    "fields": "userEnteredFormat.wrapStrategy",
+                }
+            })
+            requests.extend([
+                _repeat_cell(
+                    sheet_id,
+                    start,
+                    start + 1,
+                    5,
+                    9,
+                    background=_rgb(255, 229, 153),
+                    bold=True,
+                    horizontal_alignment="CENTER",
+                ),
+                _borders(sheet_id, start, end, 5, 9),
+            ])
+
+        requests.extend(_dashboard_style_requests(sheet_id, dashboard_rows or []))
 
         self._service.spreadsheets().batchUpdate(
             spreadsheetId=self._spreadsheet_id,

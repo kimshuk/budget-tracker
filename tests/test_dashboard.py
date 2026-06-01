@@ -1,6 +1,6 @@
 from datetime import date
 from models import Transaction
-from dashboard import _build_rows_and_groups
+from dashboard import _build_rows_and_groups, _recent_comparison_row_count
 
 SAMPLE_TRANSACTIONS = [
     Transaction(date=date(2026, 5, 15), amount=4500, merchant="스타벅스", category="카페", source="kb_card"),
@@ -94,6 +94,38 @@ def test_recent_two_month_comparison_rows_are_added_at_top():
     assert ["교통", 0, 2000, ""] in rows
     assert ["식비", 5000, 7000, ""] in rows
     assert ["카페", 3000, 0, ""] in rows
+
+
+def test_ai_insight_rows_follow_recent_two_month_comparison():
+    txns = [
+        Transaction(date=date(2026, 5, 10), amount=60000, merchant="배달의민족", category="식비", source="kb_card"),
+        Transaction(date=date(2026, 4, 10), amount=10000, merchant="배달의민족", category="식비", source="kb_card"),
+    ]
+
+    rows, _, _, charts = _build_rows_and_groups(
+        txns,
+        insight_rows=[
+            ["AI 월간 인사이트", "", "", ""],
+            ["- 식비 증가분 대부분이 배달의민족에서 나왔습니다.", "", "", ""],
+            ["", "", "", ""],
+        ],
+    )
+
+    assert rows[12][5:9] == ["AI 월간 인사이트", "", "", ""]
+    assert rows[13][5:9] == ["- 식비 증가분 대부분이 배달의민족에서 나왔습니다.", "", "", ""]
+    assert charts[0].category_start_index == 2
+    assert charts[0].category_end_index == 3
+
+
+def test_recent_comparison_row_count_matches_comparison_table_height():
+    txns = [
+        Transaction(date=date(2026, 5, 10), amount=5000, merchant="A", category="식비", source="kb_card"),
+        Transaction(date=date(2026, 5, 11), amount=3000, merchant="B", category="카페", source="kb_card"),
+        Transaction(date=date(2026, 4, 10), amount=7000, merchant="C", category="식비", source="kb_card"),
+        Transaction(date=date(2026, 4, 11), amount=2000, merchant="D", category="교통", source="kb_card"),
+    ]
+
+    assert _recent_comparison_row_count(txns) == 5
 
 
 def test_builds_percentage_format_ranges_from_monthly_summary_rows():

@@ -1,6 +1,7 @@
 from collections import defaultdict
 from dataclasses import dataclass
 from datetime import date as date_type
+from insights import build_insight_rows
 from models import Transaction
 from sheets import SheetsClient
 
@@ -21,16 +22,33 @@ class BarChartSpec:
 def build_dashboard(sheets_client: SheetsClient) -> None:
     raw_rows = sheets_client.read_sheet(TRANSACTIONS_SHEET)
     transactions = _parse_transaction_rows(raw_rows)
-    dashboard_rows, groups, percent_ranges, bar_charts = _build_rows_and_groups(transactions)
+    insight_rows = build_insight_rows(transactions)
+    insight_range = None
+    if insight_rows:
+        insight_start = _top_section_row_count(transactions)
+        insight_range = (insight_start, insight_start + len(insight_rows))
+    dashboard_rows, groups, percent_ranges, bar_charts = _build_rows_and_groups(
+        transactions,
+        insight_rows=insight_rows,
+    )
 
     sheets_client.ensure_sheet_exists(DASHBOARD_SHEET)
-    sheets_client.clear_and_write(DASHBOARD_SHEET, dashboard_rows)
+    sheets_client.clear_and_write(DASHBOARD_SHEET, dashboard_rows, value_input_option="RAW")
 
     sheet_id = sheets_client.get_sheet_id(DASHBOARD_SHEET)
     sheets_client.clear_row_groups(sheet_id)
     sheets_client.clear_charts(sheet_id)
+    sheets_client.clear_merges(sheet_id)
     sheets_client.unhide_rows(sheet_id, len(dashboard_rows))
-    sheets_client.format_dashboard(sheet_id, len(dashboard_rows), percent_ranges, bar_charts)
+    sheets_client.format_dashboard(
+        sheet_id,
+        len(dashboard_rows),
+        percent_ranges,
+        bar_charts,
+        insight_range,
+        dashboard_rows,
+    )
+    sheets_client.clear_and_write(DASHBOARD_SHEET, dashboard_rows, value_input_option="RAW")
     sheets_client.apply_row_groups(sheet_id, groups)
     sheets_client.apply_bar_charts(sheet_id, bar_charts)
 
@@ -57,6 +75,7 @@ def _parse_transaction_rows(rows: list[list]) -> list[Transaction]:
 
 def _build_rows_and_groups(
     transactions: list[Transaction],
+    insight_rows: list[list] | None = None,
 ) -> tuple[list[list], list[tuple[int, int]], list[tuple[int, int]], list[BarChartSpec]]:
     by_month: dict[tuple[int, int], list[Transaction]] = defaultdict(list)
     by_year: dict[int, list[Transaction]] = defaultdict(list)
@@ -100,7 +119,12 @@ def _build_rows_and_groups(
                 anchor_row_index=0,
             ))
 
-        all_rows.append(["", "", "", ""])
+        while len(all_rows) < _top_section_row_count(transactions):
+            all_rows.append(["", "", "", ""])
+
+    elif insight_rows:
+        while len(all_rows) < _top_section_row_count(transactions):
+            all_rows.append(["", "", "", ""])
 
     for year in sorted(by_year.keys(), reverse=True):
         year_total = sum(t.amount for t in by_year[year])
@@ -152,7 +176,49 @@ def _build_rows_and_groups(
 
         all_rows.append(["", "", "", ""])
 
+    if insight_rows:
+        _place_side_panel(
+            all_rows,
+            _top_section_row_count(transactions),
+            insight_rows,
+        )
+
     return all_rows, groups, percent_ranges, bar_charts
+
+
+def _place_side_panel(
+    rows: list[list],
+    start_index: int,
+    panel_rows: list[list],
+    start_column: int = 5,
+) -> None:
+    width = start_column + 4
+    for offset, panel_row in enumerate(panel_rows):
+        row_index = start_index + offset
+        while len(rows) <= row_index:
+            rows.append(["", "", "", ""])
+        if len(rows[row_index]) < width:
+            rows[row_index].extend([""] * (width - len(rows[row_index])))
+        rows[row_index][start_column:width] = panel_row[:4]
+
+
+def _recent_comparison_row_count(transactions: list[Transaction]) -> int:
+    by_month: dict[tuple[int, int], list[Transaction]] = defaultdict(list)
+    for txn in transactions:
+        by_month[(txn.date.year, txn.date.month)].append(txn)
+
+    recent_months = sorted(by_month.keys(), reverse=True)[:2]
+    if len(recent_months) < 2:
+        return 0
+
+    categories = set()
+    for month in recent_months:
+        categories.update(txn.category for txn in by_month[month])
+    return 2 + len(categories)
+
+
+def _top_section_row_count(transactions: list[Transaction]) -> int:
+    return max(_recent_comparison_row_count(transactions) + 1, 12)
 
 
 def _category_totals(transactions: list[Transaction]) -> dict[str, int]:

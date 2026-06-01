@@ -69,6 +69,41 @@ def test_recategorize_existing_skips_already_categorized():
     mock_client.clear_and_write.assert_not_called()
 
 
+def test_recategorize_existing_updates_changed_categories():
+    mock_client = MagicMock()
+    mock_client.read_sheet.side_effect = [
+        [
+            ["date", "amount", "merchant", "category", "source", "memo"],
+            ["2026-05-15", "4500", "스타벅스", "카페", "kb_card", ""],
+            ["2026-05-16", "32000", "쿠팡", "쇼핑", "kb_card", ""],
+        ],
+        [["스타벅스", "식비"], ["쿠팡", "생활비"]],
+    ]
+
+    count = recategorize_existing(mock_client)
+
+    assert count == 2
+    written = mock_client.clear_and_write.call_args[0][1]
+    assert written[1][3] == "식비"
+    assert written[2][3] == "생활비"
+
+
+def test_recategorize_existing_leaves_unmapped_merchants_unchanged():
+    mock_client = MagicMock()
+    mock_client.read_sheet.side_effect = [
+        [
+            ["date", "amount", "merchant", "category", "source", "memo"],
+            ["2026-05-15", "4500", "스타벅스", "카페", "kb_card", ""],
+        ],
+        [["쿠팡", "쇼핑"]],
+    ]
+
+    count = recategorize_existing(mock_client)
+
+    assert count == 0
+    mock_client.clear_and_write.assert_not_called()
+
+
 def test_recategorize_existing_no_mapping_does_nothing():
     mock_client = MagicMock()
     mock_client.read_sheet.side_effect = [

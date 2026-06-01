@@ -82,6 +82,25 @@ class SheetsClient:
                 body={"requests": requests},
             ).execute()
 
+    def clear_charts(self, sheet_id: int) -> None:
+        spreadsheet = (
+            self._service.spreadsheets()
+            .get(spreadsheetId=self._spreadsheet_id, fields="sheets(properties(sheetId),charts(chartId))")
+            .execute()
+        )
+        requests = []
+        for sheet in spreadsheet["sheets"]:
+            if sheet["properties"]["sheetId"] == sheet_id:
+                for chart in sheet.get("charts", []):
+                    requests.append(
+                        {"deleteEmbeddedObject": {"objectId": chart["chartId"]}}
+                    )
+        if requests:
+            self._service.spreadsheets().batchUpdate(
+                spreadsheetId=self._spreadsheet_id,
+                body={"requests": requests},
+            ).execute()
+
     def apply_dropdown_validation(self, sheet_id: int, col_index: int, source_range: str) -> None:
         self._service.spreadsheets().batchUpdate(
             spreadsheetId=self._spreadsheet_id,
@@ -105,6 +124,106 @@ class SheetsClient:
                     }
                 }]
             },
+        ).execute()
+
+    def unhide_rows(self, sheet_id: int, end_index: int) -> None:
+        if end_index <= 0:
+            return
+        self._service.spreadsheets().batchUpdate(
+            spreadsheetId=self._spreadsheet_id,
+            body={
+                "requests": [{
+                    "updateDimensionProperties": {
+                        "range": {
+                            "sheetId": sheet_id,
+                            "dimension": "ROWS",
+                            "startIndex": 0,
+                            "endIndex": end_index,
+                        },
+                        "properties": {"hiddenByUser": False},
+                        "fields": "hiddenByUser",
+                    }
+                }]
+            },
+        ).execute()
+
+    def format_dashboard(
+        self,
+        sheet_id: int,
+        row_count: int,
+        percent_ranges: list[tuple[int, int]] | None = None,
+        bar_charts: list | None = None,
+    ) -> None:
+        if row_count <= 0:
+            return
+        requests = [{
+            "repeatCell": {
+                "range": {
+                    "sheetId": sheet_id,
+                    "startRowIndex": 0,
+                    "endRowIndex": row_count,
+                    "startColumnIndex": 2,
+                    "endColumnIndex": 4,
+                },
+                "cell": {
+                    "userEnteredFormat": {
+                        "numberFormat": {
+                            "type": "CURRENCY",
+                            "pattern": "₩#,##0",
+                        }
+                    }
+                },
+                "fields": "userEnteredFormat.numberFormat",
+            }
+        }]
+
+        for start, end in percent_ranges or []:
+            requests.append({
+                "repeatCell": {
+                    "range": {
+                        "sheetId": sheet_id,
+                        "startRowIndex": start,
+                        "endRowIndex": end,
+                        "startColumnIndex": 1,
+                        "endColumnIndex": 2,
+                    },
+                    "cell": {
+                        "userEnteredFormat": {
+                            "numberFormat": {
+                                "type": "PERCENT",
+                                "pattern": "0.0%",
+                            }
+                        }
+                    },
+                    "fields": "userEnteredFormat.numberFormat",
+                }
+            })
+
+        for chart in bar_charts or []:
+            requests.append({
+                "repeatCell": {
+                    "range": {
+                        "sheetId": sheet_id,
+                        "startRowIndex": chart.category_start_index,
+                        "endRowIndex": chart.category_end_index,
+                        "startColumnIndex": chart.first_series_col_index,
+                        "endColumnIndex": chart.second_series_col_index + 1,
+                    },
+                    "cell": {
+                        "userEnteredFormat": {
+                            "numberFormat": {
+                                "type": "CURRENCY",
+                                "pattern": "₩#,##0",
+                            }
+                        }
+                    },
+                    "fields": "userEnteredFormat.numberFormat",
+                }
+            })
+
+        self._service.spreadsheets().batchUpdate(
+            spreadsheetId=self._spreadsheet_id,
+            body={"requests": requests},
         ).execute()
 
     def apply_row_groups(self, sheet_id: int, groups: list[tuple[int, int]]) -> None:
@@ -144,4 +263,95 @@ class SheetsClient:
         self._service.spreadsheets().batchUpdate(
             spreadsheetId=self._spreadsheet_id,
             body={"requests": add_requests + collapse_requests},
+        ).execute()
+
+    def apply_bar_charts(self, sheet_id: int, charts: list) -> None:
+        if not charts:
+            return
+        requests = []
+        for chart in charts:
+            header_start_index = chart.category_start_index - 1
+            requests.append({
+                "addChart": {
+                    "chart": {
+                        "spec": {
+                            "title": chart.title,
+                            "basicChart": {
+                                "chartType": "BAR",
+                                "legendPosition": "RIGHT_LEGEND",
+                                "axis": [
+                                    {
+                                        "position": "BOTTOM_AXIS",
+                                        "title": "지출",
+                                    },
+                                    {
+                                        "position": "LEFT_AXIS",
+                                        "title": "카테고리",
+                                    },
+                                ],
+                                "domains": [{
+                                    "domain": {
+                                        "sourceRange": {
+                                            "sources": [{
+                                                "sheetId": sheet_id,
+                                                "startRowIndex": header_start_index,
+                                                "endRowIndex": chart.category_end_index,
+                                                "startColumnIndex": 0,
+                                                "endColumnIndex": 1,
+                                            }]
+                                        }
+                                    }
+                                }],
+                                "series": [
+                                    {
+                                        "series": {
+                                            "sourceRange": {
+                                                "sources": [{
+                                                    "sheetId": sheet_id,
+                                                    "startRowIndex": header_start_index,
+                                                    "endRowIndex": chart.category_end_index,
+                                                    "startColumnIndex": chart.first_series_col_index,
+                                                    "endColumnIndex": chart.first_series_col_index + 1,
+                                                }]
+                                            }
+                                        },
+                                        "targetAxis": "BOTTOM_AXIS",
+                                    },
+                                    {
+                                        "series": {
+                                            "sourceRange": {
+                                                "sources": [{
+                                                    "sheetId": sheet_id,
+                                                    "startRowIndex": header_start_index,
+                                                    "endRowIndex": chart.category_end_index,
+                                                    "startColumnIndex": chart.second_series_col_index,
+                                                    "endColumnIndex": chart.second_series_col_index + 1,
+                                                }]
+                                            }
+                                        },
+                                        "targetAxis": "BOTTOM_AXIS",
+                                    },
+                                ],
+                                "headerCount": 1,
+                            },
+                        },
+                        "position": {
+                            "overlayPosition": {
+                                "anchorCell": {
+                                    "sheetId": sheet_id,
+                                    "rowIndex": chart.anchor_row_index,
+                                    "columnIndex": 5,
+                                },
+                                "offsetXPixels": 0,
+                                "offsetYPixels": 0,
+                                "widthPixels": 640,
+                                "heightPixels": 360,
+                            }
+                        },
+                    }
+                }
+            })
+        self._service.spreadsheets().batchUpdate(
+            spreadsheetId=self._spreadsheet_id,
+            body={"requests": requests},
         ).execute()

@@ -6,7 +6,7 @@ from sheets import SheetsClient
 from categorizer import categorize
 from dashboard import build_dashboard
 from parsers import kb_card, kb_bank, naver_pay, kakao_pay
-from config import SPREADSHEET_ID, CREDENTIALS_FILE
+from config import SPREADSHEET_ID, CREDENTIALS_FILE, validate_config
 
 EXPENSE_DIR = Path("expense")
 
@@ -56,9 +56,11 @@ def recategorize_existing(client: SheetsClient) -> int:
 
     for row in rows[1:]:
         row = list(row)
-        if len(row) >= 4 and row[3] == "미분류" and len(row) > 2 and row[2] in mapping:
-            row[3] = mapping[row[2]]
-            updated_count += 1
+        if len(row) > 3 and row[2] in mapping:
+            category = mapping[row[2]]
+            if row[3] != category:
+                row[3] = category
+                updated_count += 1
         new_data.append(row)
 
     if updated_count:
@@ -112,6 +114,7 @@ def main():
     filepaths = collect_files(args)
     print(f"파일 {len(filepaths)}개 발견: {[f.name for f in filepaths]}")
 
+    validate_config()
     client = SheetsClient(SPREADSHEET_ID, CREDENTIALS_FILE)
     client.ensure_sheet_exists(TRANSACTIONS_SHEET)
     client.ensure_sheet_exists(CATEGORIES_SHEET)
@@ -149,7 +152,7 @@ def main():
 
     updated = recategorize_existing(client)
     if updated:
-        print(f"기존 미분류 거래 {updated}건 카테고리 업데이트 완료.")
+        print(f"기존 거래 {updated}건 카테고리 동기화 완료.")
 
     build_dashboard(client)
     print("대시보드가 업데이트되었습니다.")

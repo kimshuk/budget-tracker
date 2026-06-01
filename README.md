@@ -73,3 +73,10 @@ CLI 프롬프트 없이 Google Sheets에서 직접 관리합니다.
 매 실행마다 `dashboard` 시트가 자동 재생성됩니다.  
 월별 카테고리 합계를 보여주며, 각 카테고리 행을 펼치면 세부 거래 내역을 확인할 수 있습니다.  
 카테고리 그룹은 기본적으로 접힌 상태로 표시됩니다.
+
+## Google Sheets 자동화
+
+`merchant_categories` 시트에서 카테고리를 바꿨을 때 Python을 다시 실행하지 않고
+`transactions`와 `dashboard`를 즉시 갱신하려면 Apps Script 자동화를 설치할 수 있습니다.
+
+설치 방법은 `docs/apps-script-automation.md`를 참고하세요.

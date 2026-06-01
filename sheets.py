@@ -74,7 +74,7 @@ class SheetsClient:
             if sheet["properties"]["sheetId"] == sheet_id:
                 for group in sheet.get("rowGroups", []):
                     requests.append(
-                        {"deleteDimensionGroup": {"range": group["range"], "dimension": "ROWS"}}
+                        {"deleteDimensionGroup": {"range": group["range"]}}
                     )
         if requests:
             self._service.spreadsheets().batchUpdate(
@@ -82,10 +82,35 @@ class SheetsClient:
                 body={"requests": requests},
             ).execute()
 
+    def apply_dropdown_validation(self, sheet_id: int, col_index: int, source_range: str) -> None:
+        self._service.spreadsheets().batchUpdate(
+            spreadsheetId=self._spreadsheet_id,
+            body={
+                "requests": [{
+                    "setDataValidation": {
+                        "range": {
+                            "sheetId": sheet_id,
+                            "startRowIndex": 1,
+                            "startColumnIndex": col_index,
+                            "endColumnIndex": col_index + 1,
+                        },
+                        "rule": {
+                            "condition": {
+                                "type": "ONE_OF_RANGE",
+                                "values": [{"userEnteredValue": source_range}],
+                            },
+                            "showCustomUi": True,
+                            "strict": False,
+                        },
+                    }
+                }]
+            },
+        ).execute()
+
     def apply_row_groups(self, sheet_id: int, groups: list[tuple[int, int]]) -> None:
         if not groups:
             return
-        requests = [
+        add_requests = [
             {
                 "addDimensionGroup": {
                     "range": {
@@ -98,7 +123,25 @@ class SheetsClient:
             }
             for start, end in groups
         ]
+        collapse_requests = [
+            {
+                "updateDimensionGroup": {
+                    "dimensionGroup": {
+                        "range": {
+                            "sheetId": sheet_id,
+                            "dimension": "ROWS",
+                            "startIndex": start,
+                            "endIndex": end,
+                        },
+                        "depth": 1,
+                        "collapsed": True,
+                    },
+                    "fields": "collapsed",
+                }
+            }
+            for start, end in groups
+        ]
         self._service.spreadsheets().batchUpdate(
             spreadsheetId=self._spreadsheet_id,
-            body={"requests": requests},
+            body={"requests": add_requests + collapse_requests},
         ).execute()

@@ -1,4 +1,5 @@
 import argparse
+import unicodedata
 from pathlib import Path
 from models import Transaction
 from sheets import SheetsClient
@@ -11,7 +12,13 @@ EXPENSE_DIR = Path("expense")
 
 TRANSACTIONS_SHEET = "transactions"
 CATEGORIES_SHEET = "merchant_categories"
+CATEGORIES_LIST_SHEET = "categories"
 HEADER = ["date", "amount", "merchant", "category", "source", "memo"]
+
+DEFAULT_CATEGORIES = [
+    "식비", "카페", "쇼핑", "교통", "의료",
+    "생활비", "여가/문화", "구독", "기타",
+]
 
 SOURCE_MAP = {
     "kb": kb_card,
@@ -19,6 +26,45 @@ SOURCE_MAP = {
     "naver": naver_pay,
     "kakao": kakao_pay,
 }
+
+
+def setup_categories(client: SheetsClient) -> None:
+    client.ensure_sheet_exists(CATEGORIES_LIST_SHEET)
+    if not client.read_sheet(CATEGORIES_LIST_SHEET):
+        client.append_rows(CATEGORIES_LIST_SHEET, [[c] for c in DEFAULT_CATEGORIES])
+    mc_sheet_id = client.get_sheet_id(CATEGORIES_SHEET)
+    client.apply_dropdown_validation(
+        mc_sheet_id,
+        col_index=1,
+        source_range=f"={CATEGORIES_LIST_SHEET}!$A:$A",
+    )
+
+
+def recategorize_existing(client: SheetsClient) -> int:
+    rows = client.read_sheet(TRANSACTIONS_SHEET)
+    if not rows or len(rows) <= 1:
+        return 0
+
+    cat_rows = client.read_sheet(CATEGORIES_SHEET)
+    mapping = {row[0]: row[1] for row in cat_rows if len(row) >= 2 and row[1]}
+    if not mapping:
+        return 0
+
+    header = rows[0]
+    updated_count = 0
+    new_data: list[list] = []
+
+    for row in rows[1:]:
+        row = list(row)
+        if len(row) >= 4 and row[3] == "미분류" and len(row) > 2 and row[2] in mapping:
+            row[3] = mapping[row[2]]
+            updated_count += 1
+        new_data.append(row)
+
+    if updated_count:
+        client.clear_and_write(TRANSACTIONS_SHEET, [header] + new_data)
+
+    return updated_count
 
 
 def deduplicate(
@@ -32,7 +78,7 @@ def deduplicate(
 
 
 def detect_source(filepath: str) -> str:
-    name = filepath.lower()
+    name = unicodedata.normalize("NFC", filepath.lower())
     if "naver" in name:
         return "naver"
     if "kakao" in name:
@@ -69,6 +115,7 @@ def main():
     client = SheetsClient(SPREADSHEET_ID, CREDENTIALS_FILE)
     client.ensure_sheet_exists(TRANSACTIONS_SHEET)
     client.ensure_sheet_exists(CATEGORIES_SHEET)
+    setup_categories(client)
 
     existing = client.read_sheet(TRANSACTIONS_SHEET)
     if not existing:
@@ -90,17 +137,19 @@ def main():
 
     if not new_transactions:
         print("가져올 새 거래가 없습니다.")
-        return
+    else:
+        print(f"{len(new_transactions)}건의 새 거래를 발견했습니다.")
+        categorized = categorize(new_transactions, client)
+        rows = [
+            [t.date.isoformat(), t.amount, t.merchant, t.category, t.source, t.memo]
+            for t in categorized
+        ]
+        client.append_rows(TRANSACTIONS_SHEET, rows)
+        print(f"{len(rows)}건 가져오기 완료.")
 
-    print(f"{len(new_transactions)}건의 새 거래를 발견했습니다.")
-    categorized = categorize(new_transactions, client)
-
-    rows = [
-        [t.date.isoformat(), t.amount, t.merchant, t.category, t.source, t.memo]
-        for t in categorized
-    ]
-    client.append_rows(TRANSACTIONS_SHEET, rows)
-    print(f"{len(rows)}건 가져오기 완료.")
+    updated = recategorize_existing(client)
+    if updated:
+        print(f"기존 미분류 거래 {updated}건 카테고리 업데이트 완료.")
 
     build_dashboard(client)
     print("대시보드가 업데이트되었습니다.")

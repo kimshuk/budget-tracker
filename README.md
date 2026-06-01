@@ -26,25 +26,50 @@ pip install -r requirements.txt
 
 ## 사용법
 
-```bash
-# 국민카드 CSV 가져오기
-python import_cmd.py --files kb_card_may.csv
+`expense/` 폴더에 내보낸 파일을 넣고 실행합니다.
 
-# 여러 파일 동시에
-python import_cmd.py --files kb_card.csv naver_pay.csv kakao_pay.csv
+```bash
+# expense/ 폴더의 모든 파일 자동 인식
+python import_cmd.py
+
+# 파일 직접 지정
+python import_cmd.py --files kb_card_may.xls kb_bank_may.xls
 
 # 소스 직접 지정
-python import_cmd.py --files statement.csv --source kb
+python import_cmd.py --files statement.xls --source kb
 ```
 
-처음 실행하면 알 수 없는 가맹점마다 카테고리를 입력하라는 프롬프트가 나타납니다.
-같은 가맹점은 다음 실행부터 자동으로 분류됩니다.
+## 지원 파일 형식
 
-## CSV 파일 형식
+국민카드·국민은행 앱에서 내보낸 `.xls` 파일을 그대로 사용합니다.
 
-각 카드사/앱 앱에서 내보낸 CSV를 그대로 사용합니다.
-실제 내보낸 CSV의 컬럼명이 다르면 각 파서 파일 상단의 `*_COL` 상수를 수정하세요.
+| 소스 | 파일명 패턴 | 비고 |
+|------|------------|------|
+| 국민카드 | `*카드*.xls` | 국내이용금액=0 (해외결제) 자동 제외 |
+| 국민은행 계좌 | `*은행*.xls` / `*bank*.xls` | 출금 내역만 가져옴, KB카드 자동이체 제외 |
+
+파서 파일 상단의 `*_COL` 상수를 수정하면 컬럼명을 커스텀할 수 있습니다.
 
 - `parsers/kb_card.py` → `DATE_COL`, `MERCHANT_COL`, `AMOUNT_COL`
-- `parsers/naver_pay.py` → `DATE_COL`, `MERCHANT_COL`, `AMOUNT_COL`, `STATUS_COL`
-- `parsers/kakao_pay.py` → `DATE_COL`, `MERCHANT_COL`, `AMOUNT_COL`, `TYPE_COL`
+- `parsers/kb_bank.py` → `DATE_COL`, `MERCHANT_COL`, `AMOUNT_COL`
+
+## 카테고리 분류 방식
+
+CLI 프롬프트 없이 Google Sheets에서 직접 관리합니다.
+
+1. **첫 실행 시** `categories` 시트에 기본 카테고리 목록이 자동 생성됩니다  
+   (식비, 카페, 쇼핑, 교통, 의료, 생활비, 여가/문화, 구독, 기타)
+
+2. **미등록 가맹점**은 `merchant_categories` 시트에 빈 카테고리로 추가되고,  
+   해당 거래는 transactions 시트에 `미분류`로 기록됩니다.
+
+3. **Sheets에서 카테고리 입력**: `merchant_categories` 시트의 B열 드롭다운에서  
+   카테고리를 선택하거나 직접 입력합니다.
+
+4. **다음 실행 시** `미분류` 거래가 자동으로 업데이트됩니다.
+
+## 대시보드
+
+매 실행마다 `dashboard` 시트가 자동 재생성됩니다.  
+월별 카테고리 합계를 보여주며, 각 카테고리 행을 펼치면 세부 거래 내역을 확인할 수 있습니다.  
+카테고리 그룹은 기본적으로 접힌 상태로 표시됩니다.

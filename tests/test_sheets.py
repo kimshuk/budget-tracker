@@ -65,3 +65,21 @@ def test_get_sheet_id_raises_for_missing_sheet(mock_creds, mock_build):
         assert False, "Should have raised ValueError"
     except ValueError:
         pass
+
+
+@patch("sheets.build")
+@patch("sheets.service_account.Credentials.from_service_account_file")
+def test_apply_dropdown_validation_calls_batchUpdate(mock_creds, mock_build):
+    mock_service = MagicMock()
+    mock_build.return_value = mock_service
+    client = SheetsClient("SHEET_ID", "creds.json")
+
+    client.apply_dropdown_validation(42, col_index=1, source_range="=categories!$A:$A")
+
+    mock_service.spreadsheets().batchUpdate.assert_called_once()
+    body = mock_service.spreadsheets().batchUpdate.call_args[1]["body"]
+    req = body["requests"][0]["setDataValidation"]
+    assert req["range"]["sheetId"] == 42
+    assert req["range"]["startColumnIndex"] == 1
+    assert req["rule"]["condition"]["type"] == "ONE_OF_RANGE"
+    assert req["rule"]["condition"]["values"][0]["userEnteredValue"] == "=categories!$A:$A"

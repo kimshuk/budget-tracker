@@ -2,31 +2,26 @@ from models import Transaction
 from sheets import SheetsClient
 
 CATEGORIES_SHEET = "merchant_categories"
+UNCATEGORIZED = "미분류"
 
 
 def categorize(
     transactions: list[Transaction],
     sheets_client: SheetsClient,
-    prompt_fn=None,
 ) -> list[Transaction]:
-    if prompt_fn is None:
-        prompt_fn = _cli_prompt
-
     rows = sheets_client.read_sheet(CATEGORIES_SHEET)
     mapping = {row[0]: row[1] for row in rows if len(row) >= 2}
+    known_merchants = {row[0] for row in rows if len(row) >= 1}
 
-    new_mappings: dict[str, str] = {}
+    new_merchants: list[str] = []
+    seen_new: set[str] = set()
     result = []
 
     for txn in transactions:
-        if txn.merchant in mapping:
-            category = mapping[txn.merchant]
-        elif txn.merchant in new_mappings:
-            category = new_mappings[txn.merchant]
-        else:
-            category = prompt_fn(txn.merchant)
-            mapping[txn.merchant] = category
-            new_mappings[txn.merchant] = category
+        category = mapping.get(txn.merchant) or UNCATEGORIZED
+        if txn.merchant not in known_merchants and txn.merchant not in seen_new:
+            new_merchants.append(txn.merchant)
+            seen_new.add(txn.merchant)
 
         result.append(Transaction(
             date=txn.date,
@@ -37,16 +32,11 @@ def categorize(
             memo=txn.memo,
         ))
 
-    if new_mappings:
+    if new_merchants:
         sheets_client.append_rows(
             CATEGORIES_SHEET,
-            [[merchant, cat] for merchant, cat in new_mappings.items()],
+            [[merchant, ""] for merchant in new_merchants],
         )
+        print(f"새 가맹점 {len(new_merchants)}개를 merchant_categories 시트에 추가했습니다. 카테고리를 직접 입력해주세요.")
 
     return result
-
-
-def _cli_prompt(merchant: str) -> str:
-    print(f"\n새 가맹점: {merchant}")
-    print("카테고리 입력 (예: 카페, 식비, 쇼핑, 교통, 의료, 기타):")
-    return input("> ").strip()

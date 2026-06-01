@@ -16,7 +16,7 @@ After installation, editing column B in `merchant_categories` triggers:
 
 1. Sync matching `transactions.category` values from `merchant_categories`.
 2. Rebuild `dashboard`.
-3. Recreate monthly pie charts and the recent two-month category bar chart.
+3. Recreate the recent two-month category bar chart.
 
 ## Manual Rebuild
 

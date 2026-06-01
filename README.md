@@ -13,6 +13,17 @@
 
 ### 2. 환경 변수 설정
 
+`.env` 파일을 만들거나 셸에서 직접 export 합니다.
+
+`.env` 예시:
+
+```bash
+export SPREADSHEET_ID="your-spreadsheet-id"
+export GOOGLE_CREDENTIALS="credentials.json"  # default
+```
+
+셸에서 직접 설정할 수도 있습니다.
+
 ```bash
 export SPREADSHEET_ID="your-spreadsheet-id"
 export GOOGLE_CREDENTIALS="credentials.json"  # default
@@ -66,12 +77,15 @@ CLI 프롬프트 없이 Google Sheets에서 직접 관리합니다.
 3. **Sheets에서 카테고리 입력**: `merchant_categories` 시트의 B열 드롭다운에서  
    카테고리를 선택하거나 직접 입력합니다.
 
-4. **다음 실행 시** `미분류` 거래가 자동으로 업데이트됩니다.
+4. **다음 실행 시** 기존 거래의 카테고리가 `merchant_categories` 기준으로 동기화됩니다.  
+   이미 분류된 거래도 가맹점 매핑을 바꾸면 새 카테고리로 업데이트됩니다.
 
 ## 대시보드
 
 매 실행마다 `dashboard` 시트가 자동 재생성됩니다.  
-월별 카테고리 합계를 보여주며, 각 카테고리 행을 펼치면 세부 거래 내역을 확인할 수 있습니다.  
+연간 총 지출, 월별 총 지출, 월별 카테고리 비율과 금액을 보여줍니다.  
+상단에는 최근 2개월의 카테고리별 지출을 비교하는 막대 차트가 생성됩니다.  
+각 카테고리 행을 펼치면 세부 거래 내역을 확인할 수 있습니다.  
 카테고리 그룹은 기본적으로 접힌 상태로 표시됩니다.
 
 ## Google Sheets 자동화
@@ -80,3 +94,6 @@ CLI 프롬프트 없이 Google Sheets에서 직접 관리합니다.
 `transactions`와 `dashboard`를 즉시 갱신하려면 Apps Script 자동화를 설치할 수 있습니다.
 
 설치 방법은 `docs/apps-script-automation.md`를 참고하세요.
+
+Python은 여전히 은행/카드 파일 가져오기를 담당하고, Apps Script는 가져온 뒤의
+시트 편집 반영과 대시보드 재생성을 담당합니다.

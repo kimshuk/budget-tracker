@@ -77,6 +77,41 @@ def _borders(
     }
 
 
+def _merge_cells(
+    sheet_id: int,
+    start_row: int,
+    end_row: int,
+    start_col: int,
+    end_col: int,
+) -> dict:
+    return {
+        "mergeCells": {
+            "range": {
+                "sheetId": sheet_id,
+                "startRowIndex": start_row,
+                "endRowIndex": end_row,
+                "startColumnIndex": start_col,
+                "endColumnIndex": end_col,
+            },
+            "mergeType": "MERGE_ALL",
+        }
+    }
+
+
+def _clear_formatting(sheet_id: int, start_col: int, end_col: int) -> dict:
+    return {
+        "repeatCell": {
+            "range": {
+                "sheetId": sheet_id,
+                "startColumnIndex": start_col,
+                "endColumnIndex": end_col,
+            },
+            "cell": {"userEnteredFormat": {}},
+            "fields": "userEnteredFormat",
+        }
+    }
+
+
 def _dashboard_style_requests(sheet_id: int, rows: list[list]) -> list[dict]:
     blue = _rgb(164, 194, 244)
     green = _rgb(182, 215, 168)
@@ -301,26 +336,29 @@ class SheetsClient:
     ) -> None:
         if row_count <= 0:
             return
-        requests = [{
-            "repeatCell": {
-                "range": {
-                    "sheetId": sheet_id,
-                    "startRowIndex": 0,
-                    "endRowIndex": row_count,
-                    "startColumnIndex": 2,
-                    "endColumnIndex": 4,
-                },
-                "cell": {
-                    "userEnteredFormat": {
-                        "numberFormat": {
-                            "type": "CURRENCY",
-                            "pattern": "₩#,##0",
+        requests = [
+            _clear_formatting(sheet_id, 0, 9),
+            {
+                "repeatCell": {
+                    "range": {
+                        "sheetId": sheet_id,
+                        "startRowIndex": 0,
+                        "endRowIndex": row_count,
+                        "startColumnIndex": 2,
+                        "endColumnIndex": 4,
+                    },
+                    "cell": {
+                        "userEnteredFormat": {
+                            "numberFormat": {
+                                "type": "CURRENCY",
+                                "pattern": "₩#,##0",
+                            }
                         }
-                    }
-                },
-                "fields": "userEnteredFormat.numberFormat",
-            }
-        }]
+                    },
+                    "fields": "userEnteredFormat.numberFormat",
+                }
+            },
+        ]
 
         for start, end in percent_ranges or []:
             requests.append({
@@ -368,6 +406,10 @@ class SheetsClient:
 
         if insight_range:
             start, end = insight_range
+            requests.extend([
+                _merge_cells(sheet_id, row_index, row_index + 1, 5, 9)
+                for row_index in range(start, end)
+            ])
             requests.append({
                 "repeatCell": {
                     "range": {

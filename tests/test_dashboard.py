@@ -96,7 +96,7 @@ def test_recent_two_month_comparison_rows_are_added_at_top():
     assert ["카페", 3000, 0, ""] in rows
 
 
-def test_ai_insight_rows_follow_recent_two_month_comparison():
+def test_ai_insight_rows_start_below_recent_two_month_comparison_chart():
     txns = [
         Transaction(date=date(2026, 5, 10), amount=60000, merchant="배달의민족", category="식비", source="kb_card"),
         Transaction(date=date(2026, 4, 10), amount=10000, merchant="배달의민족", category="식비", source="kb_card"),
@@ -111,8 +111,8 @@ def test_ai_insight_rows_follow_recent_two_month_comparison():
         ],
     )
 
-    assert rows[12][5:9] == ["AI 월간 인사이트", "", "", ""]
-    assert rows[13][5:9] == ["- 식비 증가분 대부분이 배달의민족에서 나왔습니다.", "", "", ""]
+    assert rows[20][5:9] == ["AI 월간 인사이트", "", "", ""]
+    assert rows[21][5:9] == ["- 식비 증가분 대부분이 배달의민족에서 나왔습니다.", "", "", ""]
     assert charts[0].category_start_index == 2
     assert charts[0].category_end_index == 3
 

@@ -7,6 +7,7 @@ from sheets import SheetsClient
 
 TRANSACTIONS_SHEET = "transactions"
 DASHBOARD_SHEET = "dashboard"
+AI_INSIGHT_ROW_OFFSET = 8
 
 
 @dataclass(frozen=True)
@@ -25,7 +26,7 @@ def build_dashboard(sheets_client: SheetsClient) -> None:
     insight_rows = build_insight_rows(transactions)
     insight_range = None
     if insight_rows:
-        insight_start = _top_section_row_count(transactions)
+        insight_start = _insight_start_row_index(transactions)
         insight_range = (insight_start, insight_start + len(insight_rows))
     dashboard_rows, groups, percent_ranges, bar_charts = _build_rows_and_groups(
         transactions,
@@ -56,19 +57,38 @@ def build_dashboard(sheets_client: SheetsClient) -> None:
 def _parse_transaction_rows(rows: list[list]) -> list[Transaction]:
     if not rows:
         return []
-    if rows[0] and rows[0][0] == "date":
-        rows = rows[1:]
+    header = rows[0]
+    if not header:
+        return []
+    if header[0] == "date":
+        indexes = {
+            "date": 0,
+            "amount": 1,
+            "merchant": 2,
+            "category": 3,
+            "source": 4,
+            "memo": 5,
+        }
+    else:
+        indexes = {
+            "date": header.index("date"),
+            "amount": header.index("amount"),
+            "merchant": header.index("merchant_normalized"),
+            "category": header.index("category"),
+            "source": header.index("source"),
+            "memo": header.index("memo"),
+        }
     result = []
-    for row in rows:
-        if len(row) < 5:
+    for row in rows[1:]:
+        if len(row) <= max(indexes["date"], indexes["amount"], indexes["merchant"], indexes["category"], indexes["source"]):
             continue
         result.append(Transaction(
-            date=date_type.fromisoformat(row[0]),
-            amount=int(row[1]),
-            merchant=row[2],
-            category=row[3],
-            source=row[4],
-            memo=row[5] if len(row) > 5 else "",
+            date=date_type.fromisoformat(row[indexes["date"]]),
+            amount=int(row[indexes["amount"]]),
+            merchant=row[indexes["merchant"]],
+            category=row[indexes["category"]],
+            source=row[indexes["source"]],
+            memo=row[indexes["memo"]] if len(row) > indexes["memo"] else "",
         ))
     return result
 
@@ -179,7 +199,7 @@ def _build_rows_and_groups(
     if insight_rows:
         _place_side_panel(
             all_rows,
-            _top_section_row_count(transactions),
+            _insight_start_row_index(transactions),
             insight_rows,
         )
 
@@ -219,6 +239,10 @@ def _recent_comparison_row_count(transactions: list[Transaction]) -> int:
 
 def _top_section_row_count(transactions: list[Transaction]) -> int:
     return max(_recent_comparison_row_count(transactions) + 1, 12)
+
+
+def _insight_start_row_index(transactions: list[Transaction]) -> int:
+    return _top_section_row_count(transactions) + AI_INSIGHT_ROW_OFFSET
 
 
 def _category_totals(transactions: list[Transaction]) -> dict[str, int]:

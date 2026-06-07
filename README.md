@@ -1,5 +1,7 @@
 # Personal Budget Tracker
 
+![alt text](docs/Screenshot_dashboard_txt.png)
+
 ## Setup
 
 ### 1. Google Sheets 준비
@@ -55,6 +57,14 @@ python import_cmd.py --files kb_card_may.xls kb_bank_may.xls
 # 소스 직접 지정
 python import_cmd.py --files statement.xls --source kb
 ```
+
+원본 지출 파일은 수정하지 않습니다. 가져온 파일은 `imported_files.json`에 파일명,
+파일 해시, 가져온 시각, 행 수, 소스를 기록해 변경 없는 파일은 다음 실행에서 건너뜁니다.
+그래도 중복 방지는 파일 단위가 아니라 거래 단위 `transaction_id`로 한 번 더 수행합니다.
+
+`transactions` 시트는 정규화된 작업 테이블입니다. 각 거래는 `source`, `date`,
+원본 가맹점명, 금액, 승인번호(파서가 제공하는 경우)를 기반으로 생성한 안정적인
+`transaction_id`를 갖습니다. `dashboard`는 언제든 다시 만들 수 있는 파생 뷰입니다.
 
 ## 지원 파일 형식
 

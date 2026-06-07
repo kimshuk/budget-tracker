@@ -1,30 +1,96 @@
 from unittest.mock import MagicMock, patch
-from import_cmd import deduplicate, detect_source, recategorize_existing, setup_categories, CATEGORIES_LIST_SHEET, DEFAULT_CATEGORIES
+from import_cmd import (
+    DEFAULT_CATEGORIES,
+    CATEGORIES_LIST_SHEET,
+    HEADER,
+    build_transaction_id,
+    detect_source,
+    normalize_transaction,
+    recategorize_existing,
+    should_process_file,
+    setup_categories,
+    upsert_transactions,
+)
 
 
-def test_deduplicate_removes_existing_transactions():
+def test_transaction_id_is_stable_from_raw_identity_fields():
     from datetime import date
     from models import Transaction
 
-    existing_keys = {("2026-05-15", "4500", "스타벅스")}
-    txns = [
-        Transaction(date=date(2026, 5, 15), amount=4500, merchant="스타벅스", category="", source="kb_card"),
-        Transaction(date=date(2026, 5, 16), amount=3800, merchant="이디야", category="", source="kb_card"),
-    ]
-    result = deduplicate(txns, existing_keys)
-    assert len(result) == 1
-    assert result[0].merchant == "이디야"
+    txn = Transaction(date=date(2026, 5, 15), amount=4500, merchant="스타벅스", category="", source="kb_card")
+
+    first = build_transaction_id(txn)
+    second = build_transaction_id(txn)
+
+    assert first == second
+    assert len(first) == 64
 
 
-def test_deduplicate_returns_all_when_no_overlap():
+def test_normalize_transaction_outputs_canonical_row():
     from datetime import date
     from models import Transaction
 
-    txns = [
-        Transaction(date=date(2026, 5, 15), amount=4500, merchant="스타벅스", category="", source="kb_card"),
+    txn = Transaction(date=date(2026, 5, 15), amount=4500, merchant="스타벅스", category="카페", source="kb_card")
+
+    row = normalize_transaction(txn, source_file="KB카드내역_5월.csv", imported_at="2026-06-02T12:00:00+09:00")
+
+    assert row[HEADER.index("transaction_id")] == build_transaction_id(txn)
+    assert row[HEADER.index("source")] == "kb_card"
+    assert row[HEADER.index("source_file")] == "KB카드내역_5월.csv"
+    assert row[HEADER.index("merchant_raw")] == "스타벅스"
+    assert row[HEADER.index("merchant_normalized")] == "스타벅스"
+    assert row[HEADER.index("category")] == "카페"
+    assert row[HEADER.index("imported_at")] == "2026-06-02T12:00:00+09:00"
+
+
+def test_upsert_transactions_preserves_existing_category_and_adds_new_rows():
+    from datetime import date
+    from models import Transaction
+
+    existing_txn = Transaction(date=date(2026, 5, 15), amount=4500, merchant="스타벅스", category="", source="kb_card")
+    existing_id = build_transaction_id(existing_txn)
+    mock_client = MagicMock()
+    mock_client.read_sheet.return_value = [
+        HEADER,
+        [
+            existing_id, "kb_card", "old.csv", "2026-05-15", "스타벅스", "스타벅스",
+            4500, "카페", "", "", "", "2026-06-01T00:00:00+09:00", "",
+        ],
     ]
-    result = deduplicate(txns, set())
-    assert len(result) == 1
+    txns = [
+        existing_txn,
+        Transaction(date=date(2026, 5, 16), amount=3800, merchant="이디야", category="카페", source="kb_card"),
+    ]
+
+    inserted, updated = upsert_transactions(
+        mock_client,
+        txns,
+        source_file="new.csv",
+        imported_at="2026-06-02T12:00:00+09:00",
+    )
+
+    assert inserted == 1
+    assert updated == 0
+    written = mock_client.clear_and_write.call_args[0][1]
+    assert written[0] == HEADER
+    assert written[1][HEADER.index("category")] == "카페"
+    assert written[2][HEADER.index("merchant_raw")] == "이디야"
+
+
+def test_should_process_file_detects_unchanged_file(tmp_path):
+    filepath = tmp_path / "KB카드내역_5월.csv"
+    filepath.write_text("date,amount\n2026-05-15,4500\n", encoding="utf-8")
+
+    state = {
+        str(filepath): {
+            "file_hash": "wrong",
+            "source": "kb",
+        }
+    }
+    assert should_process_file(filepath, "kb", state) is True
+
+    state[str(filepath)]["file_hash"] = __import__("import_cmd")._file_hash(filepath)
+    assert should_process_file(filepath, "kb", state) is False
 
 
 def test_detect_source_from_filename():

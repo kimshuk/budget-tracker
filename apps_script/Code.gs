@@ -1,6 +1,7 @@
 const SHEETS = {
   transactions: "transactions",
   merchantCategories: "merchant_categories",
+  categories: "categories",
   dashboard: "dashboard",
 };
 
@@ -24,10 +25,13 @@ function onOpen() {
 function installBudgetTrackerAutomation() {
   const ss = SpreadsheetApp.getActive();
   ScriptApp.getProjectTriggers()
-    .filter((trigger) => trigger.getHandlerFunction() === "handleMerchantCategoryEdit")
+    .filter((trigger) => (
+      trigger.getHandlerFunction() === "handleBudgetTrackerEdit" ||
+      trigger.getHandlerFunction() === "handleMerchantCategoryEdit"
+    ))
     .forEach((trigger) => ScriptApp.deleteTrigger(trigger));
 
-  ScriptApp.newTrigger("handleMerchantCategoryEdit")
+  ScriptApp.newTrigger("handleBudgetTrackerEdit")
     .forSpreadsheet(ss)
     .onEdit()
     .create();
@@ -36,10 +40,20 @@ function installBudgetTrackerAutomation() {
 }
 
 function handleMerchantCategoryEdit(e) {
-  if (!e || !e.range || !isMerchantCategoryEdit_(e.range)) {
+  handleBudgetTrackerEdit(e);
+}
+
+function handleBudgetTrackerEdit(e) {
+  if (!e || !e.range) {
     return;
   }
-  syncCategoriesAndRebuildDashboard();
+  if (isCategoryListEdit_(e.range)) {
+    refreshMerchantCategoryValidation_(SpreadsheetApp.getActive());
+    return;
+  }
+  if (isMerchantCategoryEdit_(e.range)) {
+    syncCategoriesAndRebuildDashboard();
+  }
 }
 
 function syncCategoriesAndRebuildDashboard() {
@@ -59,6 +73,31 @@ function isMerchantCategoryEdit_(range) {
     startColumn <= 2 &&
     endColumn >= 2
   );
+}
+
+function isCategoryListEdit_(range) {
+  const sheet = range.getSheet();
+  const startColumn = range.getColumn();
+  const endColumn = range.getLastColumn();
+  return (
+    sheet.getName() === SHEETS.categories &&
+    startColumn <= 1 &&
+    endColumn >= 1
+  );
+}
+
+function refreshMerchantCategoryValidation_(ss) {
+  const merchantCategoriesSheet = ss.getSheetByName(SHEETS.merchantCategories);
+  const categoriesSheet = ss.getSheetByName(SHEETS.categories);
+  if (!merchantCategoriesSheet || !categoriesSheet) {
+    return;
+  }
+
+  const rule = SpreadsheetApp.newDataValidation()
+    .requireValueInRange(categoriesSheet.getRange("A:A"), true)
+    .setAllowInvalid(true)
+    .build();
+  merchantCategoriesSheet.getRange("B:B").setDataValidation(rule);
 }
 
 function syncTransactionCategories_(ss) {

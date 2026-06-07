@@ -1,6 +1,7 @@
 const SHEETS = {
   transactions: "transactions",
   merchantCategories: "merchant_categories",
+  categories: "categories",
   dashboard: "dashboard",
 };
 
@@ -24,10 +25,13 @@ function onOpen() {
 function installBudgetTrackerAutomation() {
   const ss = SpreadsheetApp.getActive();
   ScriptApp.getProjectTriggers()
-    .filter((trigger) => trigger.getHandlerFunction() === "handleMerchantCategoryEdit")
+    .filter((trigger) => (
+      trigger.getHandlerFunction() === "handleBudgetTrackerEdit" ||
+      trigger.getHandlerFunction() === "handleMerchantCategoryEdit"
+    ))
     .forEach((trigger) => ScriptApp.deleteTrigger(trigger));
 
-  ScriptApp.newTrigger("handleMerchantCategoryEdit")
+  ScriptApp.newTrigger("handleBudgetTrackerEdit")
     .forSpreadsheet(ss)
     .onEdit()
     .create();
@@ -36,10 +40,20 @@ function installBudgetTrackerAutomation() {
 }
 
 function handleMerchantCategoryEdit(e) {
-  if (!e || !e.range || !isMerchantCategoryEdit_(e.range)) {
+  handleBudgetTrackerEdit(e);
+}
+
+function handleBudgetTrackerEdit(e) {
+  if (!e || !e.range) {
     return;
   }
-  syncCategoriesAndRebuildDashboard();
+  if (isCategoryListEdit_(e.range)) {
+    refreshMerchantCategoryValidation_(SpreadsheetApp.getActive());
+    return;
+  }
+  if (isMerchantCategoryEdit_(e.range)) {
+    syncCategoriesAndRebuildDashboard();
+  }
 }
 
 function syncCategoriesAndRebuildDashboard() {
@@ -59,6 +73,31 @@ function isMerchantCategoryEdit_(range) {
     startColumn <= 2 &&
     endColumn >= 2
   );
+}
+
+function isCategoryListEdit_(range) {
+  const sheet = range.getSheet();
+  const startColumn = range.getColumn();
+  const endColumn = range.getLastColumn();
+  return (
+    sheet.getName() === SHEETS.categories &&
+    startColumn <= 1 &&
+    endColumn >= 1
+  );
+}
+
+function refreshMerchantCategoryValidation_(ss) {
+  const merchantCategoriesSheet = ss.getSheetByName(SHEETS.merchantCategories);
+  const categoriesSheet = ss.getSheetByName(SHEETS.categories);
+  if (!merchantCategoriesSheet || !categoriesSheet) {
+    return;
+  }
+
+  const rule = SpreadsheetApp.newDataValidation()
+    .requireValueInRange(categoriesSheet.getRange("A:A"), true)
+    .setAllowInvalid(true)
+    .build();
+  merchantCategoriesSheet.getRange("B:B").setDataValidation(rule);
 }
 
 function syncTransactionCategories_(ss) {
@@ -220,7 +259,9 @@ function buildDashboardModel_(transactions) {
         anchor: 0,
       });
     }
-    rows.push(["", "", "", ""]);
+    while (rows.length < topSectionRowCount_(transactions)) {
+      rows.push(["", "", "", ""]);
+    }
   }
 
   Object.keys(byYear).sort((a, b) => Number(b) - Number(a)).forEach((year) => {
@@ -279,6 +320,7 @@ function buildDashboardModel_(transactions) {
 
 function resetDashboardSheet_(sheet) {
   sheet.getCharts().forEach((chart) => sheet.removeChart(chart));
+  sheet.getRange(1, 1, sheet.getMaxRows(), sheet.getMaxColumns()).breakApart();
   sheet.clear();
   if (sheet.getMaxRows() > 0) {
     sheet.showRows(1, sheet.getMaxRows());
@@ -303,7 +345,47 @@ function applyDashboardFormatting_(sheet, model) {
     sheet.getRange(chart.start + 1, 2, chart.end - chart.start, 2).setNumberFormat("₩#,##0");
   });
 
-  sheet.autoResizeColumns(1, 4);
+  applyDashboardStyles_(sheet, model.rows);
+}
+
+function applyDashboardStyles_(sheet, rows) {
+  const blue = "#a4c2f4";
+  const green = "#b6d7a8";
+  const yellow = "#ffe599";
+
+  sheet.setColumnWidth(1, 140);
+  sheet.setColumnWidth(2, 130);
+  sheet.setColumnWidth(3, 170);
+  sheet.setColumnWidth(4, 120);
+  sheet.setColumnWidth(5, 40);
+  for (let column = 6; column <= 9; column++) {
+    sheet.setColumnWidth(column, 155);
+  }
+
+  rows.forEach((row, index) => {
+    const rowNumber = index + 1;
+    const label = String(row[0] || "");
+    if (label === "최근 2개월 카테고리 비교") {
+      styleRange_(sheet.getRange(rowNumber, 1, 1, 3), blue, true, "center");
+    } else if (label === "카테고리" || label === "거래 상세") {
+      styleRange_(sheet.getRange(rowNumber, 1, 1, 3), green, true, "center");
+    } else if (label.endsWith("년") || label.endsWith("월")) {
+      styleRange_(sheet.getRange(rowNumber, 1, 1, 4), blue, true);
+      if (row[2] === "연간 총 지출" || row[2] === "월 총 지출") {
+        styleRange_(sheet.getRange(rowNumber, 4, 1, 1), yellow, true);
+      }
+    }
+  });
+}
+
+function styleRange_(range, background, bold, horizontalAlignment) {
+  range
+    .setBackground(background)
+    .setFontWeight(bold ? "bold" : "normal")
+    .setBorder(true, true, true, true, true, true);
+  if (horizontalAlignment) {
+    range.setHorizontalAlignment(horizontalAlignment);
+  }
 }
 
 function applyRowGroups_(sheet, groups) {
@@ -356,6 +438,26 @@ function monthKey_(year, month) {
 
 function compareMonthKeysDesc_(a, b) {
   return b.localeCompare(a);
+}
+
+function topSectionRowCount_(transactions) {
+  const byMonth = {};
+  transactions.forEach((txn) => {
+    const key = monthKey_(txn.year, txn.month);
+    if (!byMonth[key]) byMonth[key] = [];
+    byMonth[key].push(txn);
+  });
+  const monthKeys = Object.keys(byMonth).sort(compareMonthKeysDesc_).slice(0, 2);
+  if (monthKeys.length < 2) {
+    return 12;
+  }
+  const categories = {};
+  monthKeys.forEach((key) => {
+    byMonth[key].forEach((txn) => {
+      categories[txn.category] = true;
+    });
+  });
+  return Math.max(2 + Object.keys(categories).length + 1, 12);
 }
 
 function monthLabelFromKey_(key) {

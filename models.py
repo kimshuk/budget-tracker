@@ -9,3 +9,9 @@ class Transaction:
     category: str
     source: str
     memo: str = ""
+    source_file: str = ""
+    merchant_raw: str = ""
+    merchant_normalized: str = ""
+    subcategory: str = ""
+    payment_method: str = ""
+    approval_number: str = ""

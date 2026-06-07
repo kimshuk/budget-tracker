@@ -39,6 +39,19 @@ def test_append_rows_calls_api(mock_creds, mock_build):
 
 @patch("sheets.build")
 @patch("sheets.service_account.Credentials.from_service_account_file")
+def test_clear_and_write_allows_raw_value_input(mock_creds, mock_build):
+    mock_service = MagicMock()
+    mock_build.return_value = mock_service
+    client = SheetsClient("SHEET_ID", "creds.json")
+
+    client.clear_and_write("dashboard", [["2026년 5월", "", "월 총 지출", 1000]], value_input_option="RAW")
+
+    mock_service.spreadsheets().values().update.assert_called_once()
+    assert mock_service.spreadsheets().values().update.call_args[1]["valueInputOption"] == "RAW"
+
+
+@patch("sheets.build")
+@patch("sheets.service_account.Credentials.from_service_account_file")
 def test_get_sheet_id_returns_correct_id(mock_creds, mock_build):
     mock_service = MagicMock()
     mock_build.return_value = mock_service
@@ -142,7 +155,33 @@ def test_clear_charts_deletes_existing_dashboard_charts(mock_creds, mock_build):
 
 @patch("sheets.build")
 @patch("sheets.service_account.Credentials.from_service_account_file")
-def test_format_dashboard_formats_amount_columns_as_won(mock_creds, mock_build):
+def test_clear_merges_unmerges_existing_dashboard_ranges(mock_creds, mock_build):
+    mock_service = MagicMock()
+    mock_build.return_value = mock_service
+    merge = {
+        "sheetId": 42,
+        "startRowIndex": 13,
+        "endRowIndex": 14,
+        "startColumnIndex": 0,
+        "endColumnIndex": 3,
+    }
+    mock_service.spreadsheets().get().execute.return_value = {
+        "sheets": [
+            {"properties": {"sheetId": 42}, "merges": [merge]},
+            {"properties": {"sheetId": 7}, "merges": []},
+        ]
+    }
+    client = SheetsClient("SHEET_ID", "creds.json")
+
+    client.clear_merges(42)
+
+    body = mock_service.spreadsheets().batchUpdate.call_args[1]["body"]
+    assert body["requests"] == [{"unmergeCells": {"range": merge}}]
+
+
+@patch("sheets.build")
+@patch("sheets.service_account.Credentials.from_service_account_file")
+def test_format_dashboard_clears_existing_dashboard_formatting(mock_creds, mock_build):
     mock_service = MagicMock()
     mock_build.return_value = mock_service
     client = SheetsClient("SHEET_ID", "creds.json")
@@ -151,6 +190,25 @@ def test_format_dashboard_formats_amount_columns_as_won(mock_creds, mock_build):
 
     body = mock_service.spreadsheets().batchUpdate.call_args[1]["body"]
     req = body["requests"][0]["repeatCell"]
+    assert req["range"]["sheetId"] == 42
+    assert req["range"]["startColumnIndex"] == 0
+    assert req["range"]["endColumnIndex"] == 9
+    assert "endRowIndex" not in req["range"]
+    assert req["cell"]["userEnteredFormat"] == {}
+    assert req["fields"] == "userEnteredFormat"
+
+
+@patch("sheets.build")
+@patch("sheets.service_account.Credentials.from_service_account_file")
+def test_format_dashboard_formats_amount_columns_as_won(mock_creds, mock_build):
+    mock_service = MagicMock()
+    mock_build.return_value = mock_service
+    client = SheetsClient("SHEET_ID", "creds.json")
+
+    client.format_dashboard(42, row_count=20)
+
+    body = mock_service.spreadsheets().batchUpdate.call_args[1]["body"]
+    req = body["requests"][1]["repeatCell"]
     assert req["range"]["sheetId"] == 42
     assert req["range"]["startColumnIndex"] == 2
     assert req["range"]["endColumnIndex"] == 4
@@ -176,8 +234,8 @@ def test_format_dashboard_formats_chart_specific_ranges(mock_creds, mock_build):
     client.format_dashboard(42, row_count=30, percent_ranges=percent_ranges, bar_charts=bar_charts)
 
     body = mock_service.spreadsheets().batchUpdate.call_args[1]["body"]
-    percent_req = body["requests"][1]["repeatCell"]
-    bar_currency_req = body["requests"][2]["repeatCell"]
+    percent_req = body["requests"][2]["repeatCell"]
+    bar_currency_req = body["requests"][3]["repeatCell"]
     assert percent_req["range"]["startRowIndex"] == 10
     assert percent_req["range"]["endRowIndex"] == 18
     assert percent_req["range"]["startColumnIndex"] == 1
@@ -187,6 +245,33 @@ def test_format_dashboard_formats_chart_specific_ranges(mock_creds, mock_build):
     assert bar_currency_req["range"]["startColumnIndex"] == 1
     assert bar_currency_req["range"]["endColumnIndex"] == 3
     assert bar_currency_req["cell"]["userEnteredFormat"]["numberFormat"]["type"] == "CURRENCY"
+
+
+@patch("sheets.build")
+@patch("sheets.service_account.Credentials.from_service_account_file")
+def test_format_dashboard_wraps_insight_text_rows(mock_creds, mock_build):
+    mock_service = MagicMock()
+    mock_build.return_value = mock_service
+    client = SheetsClient("SHEET_ID", "creds.json")
+
+    client.format_dashboard(42, row_count=30, insight_range=(3, 8))
+
+    body = mock_service.spreadsheets().batchUpdate.call_args[1]["body"]
+    merge_reqs = [request["mergeCells"] for request in body["requests"][2:7]]
+    assert [req["range"]["startRowIndex"] for req in merge_reqs] == [3, 4, 5, 6, 7]
+    assert all(req["range"]["endRowIndex"] == req["range"]["startRowIndex"] + 1 for req in merge_reqs)
+    assert all(req["range"]["startColumnIndex"] == 5 for req in merge_reqs)
+    assert all(req["range"]["endColumnIndex"] == 9 for req in merge_reqs)
+    assert all(req["mergeType"] == "MERGE_ALL" for req in merge_reqs)
+
+    wrap_req = body["requests"][7]["repeatCell"]
+    assert wrap_req["range"]["sheetId"] == 42
+    assert wrap_req["range"]["startRowIndex"] == 3
+    assert wrap_req["range"]["endRowIndex"] == 8
+    assert wrap_req["range"]["startColumnIndex"] == 5
+    assert wrap_req["range"]["endColumnIndex"] == 9
+    assert wrap_req["cell"]["userEnteredFormat"]["wrapStrategy"] == "WRAP"
+    assert wrap_req["fields"] == "userEnteredFormat.wrapStrategy"
 
 
 @patch("sheets.build")

@@ -1,6 +1,6 @@
 # Google Sheets Automation
 
-Use this when you want edits in `merchant_categories` to update `transactions` and `dashboard` without running `python import_cmd.py`.
+Use this when you want spreadsheet edits to update dependent sheets without running `python import_cmd.py`.
 
 ## Install
 
@@ -12,11 +12,17 @@ Use this when you want edits in `merchant_categories` to update `transactions` a
 6. In the spreadsheet menu, open **Budget Tracker > Install automation**.
 7. Approve the requested spreadsheet permissions.
 
-After installation, editing column B in `merchant_categories` triggers:
+After installation, editing column A in `categories` refreshes the dropdown validation in
+`merchant_categories` column B.
+
+Editing column B in `merchant_categories` triggers:
 
 1. Sync matching `transactions.category` values from `merchant_categories`.
 2. Rebuild `dashboard`.
 3. Recreate the recent two-month category bar chart.
+
+Adding a category name to `categories` only adds a dropdown option. The dashboard changes after
+one or more merchants in `merchant_categories` are assigned to that category.
 
 ## Manual Rebuild
 

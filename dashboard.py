@@ -1,11 +1,13 @@
 from collections import defaultdict
 from dataclasses import dataclass
 from datetime import date as date_type
+from insights import build_insight_rows
 from models import Transaction
 from sheets import SheetsClient
 
 TRANSACTIONS_SHEET = "transactions"
 DASHBOARD_SHEET = "dashboard"
+AI_INSIGHT_ROW_OFFSET = 8
 
 
 @dataclass(frozen=True)
@@ -21,16 +23,33 @@ class BarChartSpec:
 def build_dashboard(sheets_client: SheetsClient) -> None:
     raw_rows = sheets_client.read_sheet(TRANSACTIONS_SHEET)
     transactions = _parse_transaction_rows(raw_rows)
-    dashboard_rows, groups, percent_ranges, bar_charts = _build_rows_and_groups(transactions)
+    insight_rows = build_insight_rows(transactions)
+    insight_range = None
+    if insight_rows:
+        insight_start = _insight_start_row_index(transactions)
+        insight_range = (insight_start, insight_start + len(insight_rows))
+    dashboard_rows, groups, percent_ranges, bar_charts = _build_rows_and_groups(
+        transactions,
+        insight_rows=insight_rows,
+    )
 
     sheets_client.ensure_sheet_exists(DASHBOARD_SHEET)
-    sheets_client.clear_and_write(DASHBOARD_SHEET, dashboard_rows)
+    sheets_client.clear_and_write(DASHBOARD_SHEET, dashboard_rows, value_input_option="RAW")
 
     sheet_id = sheets_client.get_sheet_id(DASHBOARD_SHEET)
     sheets_client.clear_row_groups(sheet_id)
     sheets_client.clear_charts(sheet_id)
+    sheets_client.clear_merges(sheet_id)
     sheets_client.unhide_rows(sheet_id, len(dashboard_rows))
-    sheets_client.format_dashboard(sheet_id, len(dashboard_rows), percent_ranges, bar_charts)
+    sheets_client.format_dashboard(
+        sheet_id,
+        len(dashboard_rows),
+        percent_ranges,
+        bar_charts,
+        insight_range,
+        dashboard_rows,
+    )
+    sheets_client.clear_and_write(DASHBOARD_SHEET, dashboard_rows, value_input_option="RAW")
     sheets_client.apply_row_groups(sheet_id, groups)
     sheets_client.apply_bar_charts(sheet_id, bar_charts)
 
@@ -38,25 +57,45 @@ def build_dashboard(sheets_client: SheetsClient) -> None:
 def _parse_transaction_rows(rows: list[list]) -> list[Transaction]:
     if not rows:
         return []
-    if rows[0] and rows[0][0] == "date":
-        rows = rows[1:]
+    header = rows[0]
+    if not header:
+        return []
+    if header[0] == "date":
+        indexes = {
+            "date": 0,
+            "amount": 1,
+            "merchant": 2,
+            "category": 3,
+            "source": 4,
+            "memo": 5,
+        }
+    else:
+        indexes = {
+            "date": header.index("date"),
+            "amount": header.index("amount"),
+            "merchant": header.index("merchant_normalized"),
+            "category": header.index("category"),
+            "source": header.index("source"),
+            "memo": header.index("memo"),
+        }
     result = []
-    for row in rows:
-        if len(row) < 5:
+    for row in rows[1:]:
+        if len(row) <= max(indexes["date"], indexes["amount"], indexes["merchant"], indexes["category"], indexes["source"]):
             continue
         result.append(Transaction(
-            date=date_type.fromisoformat(row[0]),
-            amount=int(row[1]),
-            merchant=row[2],
-            category=row[3],
-            source=row[4],
-            memo=row[5] if len(row) > 5 else "",
+            date=date_type.fromisoformat(row[indexes["date"]]),
+            amount=int(row[indexes["amount"]]),
+            merchant=row[indexes["merchant"]],
+            category=row[indexes["category"]],
+            source=row[indexes["source"]],
+            memo=row[indexes["memo"]] if len(row) > indexes["memo"] else "",
         ))
     return result
 
 
 def _build_rows_and_groups(
     transactions: list[Transaction],
+    insight_rows: list[list] | None = None,
 ) -> tuple[list[list], list[tuple[int, int]], list[tuple[int, int]], list[BarChartSpec]]:
     by_month: dict[tuple[int, int], list[Transaction]] = defaultdict(list)
     by_year: dict[int, list[Transaction]] = defaultdict(list)
@@ -100,7 +139,12 @@ def _build_rows_and_groups(
                 anchor_row_index=0,
             ))
 
-        all_rows.append(["", "", "", ""])
+        while len(all_rows) < _top_section_row_count(transactions):
+            all_rows.append(["", "", "", ""])
+
+    elif insight_rows:
+        while len(all_rows) < _top_section_row_count(transactions):
+            all_rows.append(["", "", "", ""])
 
     for year in sorted(by_year.keys(), reverse=True):
         year_total = sum(t.amount for t in by_year[year])
@@ -152,7 +196,53 @@ def _build_rows_and_groups(
 
         all_rows.append(["", "", "", ""])
 
+    if insight_rows:
+        _place_side_panel(
+            all_rows,
+            _insight_start_row_index(transactions),
+            insight_rows,
+        )
+
     return all_rows, groups, percent_ranges, bar_charts
+
+
+def _place_side_panel(
+    rows: list[list],
+    start_index: int,
+    panel_rows: list[list],
+    start_column: int = 5,
+) -> None:
+    width = start_column + 4
+    for offset, panel_row in enumerate(panel_rows):
+        row_index = start_index + offset
+        while len(rows) <= row_index:
+            rows.append(["", "", "", ""])
+        if len(rows[row_index]) < width:
+            rows[row_index].extend([""] * (width - len(rows[row_index])))
+        rows[row_index][start_column:width] = panel_row[:4]
+
+
+def _recent_comparison_row_count(transactions: list[Transaction]) -> int:
+    by_month: dict[tuple[int, int], list[Transaction]] = defaultdict(list)
+    for txn in transactions:
+        by_month[(txn.date.year, txn.date.month)].append(txn)
+
+    recent_months = sorted(by_month.keys(), reverse=True)[:2]
+    if len(recent_months) < 2:
+        return 0
+
+    categories = set()
+    for month in recent_months:
+        categories.update(txn.category for txn in by_month[month])
+    return 2 + len(categories)
+
+
+def _top_section_row_count(transactions: list[Transaction]) -> int:
+    return max(_recent_comparison_row_count(transactions) + 1, 12)
+
+
+def _insight_start_row_index(transactions: list[Transaction]) -> int:
+    return _top_section_row_count(transactions) + AI_INSIGHT_ROW_OFFSET
 
 
 def _category_totals(transactions: list[Transaction]) -> dict[str, int]:
